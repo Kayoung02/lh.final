@@ -1,4 +1,5 @@
 import streamlit as st
+from .data import load_apartment_data
 from streamlit_folium import st_folium
 
 from .data import (
