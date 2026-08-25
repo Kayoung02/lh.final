@@ -6,3 +6,4 @@ geopandas
 shapely
 branca
 requests
+plotly
