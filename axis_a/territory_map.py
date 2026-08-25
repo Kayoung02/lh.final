@@ -19,7 +19,7 @@ from .visuals import (
 
 
 def render_axis_a():
-    st.title("기존 아파트 시공사 영토")
+    st.title("서울시 시공사별 점유율")
 
     # 1. 데이터 불러오기
     apartment_df, company_df, quality = (
