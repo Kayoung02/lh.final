@@ -7,11 +7,15 @@ from folium.plugins import Fullscreen, MarkerCluster
 from common.config import SEOUL_ADM_DONG_GEOJSON_PATH, SEOUL_CENTER
 
 
-AGENCY_COLORS = {
-    "서울주택도시공사(SH)": "#1f77b4",
-    "한국토지주택공사(LH)": "#2ca02c",
-    "대한주택공사(현 LH)": "#2ca02c",
-    "서울특별시": "#9467bd",
+DEVELOPER_TYPE_COLORS = {
+    "공공": "#1769AA",
+    "기타공공": "#5C6BC0",
+    "공공·조합 공동": "#00897B",
+    "공공·민간 공동": "#43A047",
+    "조합": "#EF6C00",
+    "민간": "#607D8B",
+    "미상": "#9E9E9E",
+    "확인필요": "#9E9E9E",
 }
 
 
@@ -31,7 +35,7 @@ def _popup_html(row) -> str:
     """
 
 
-def build_public_supply_map(public_supply):
+def build_public_supply_map(apartment):
     supply_map = folium.Map(
         location=[SEOUL_CENTER["lat"], SEOUL_CENTER["lon"]],
         zoom_start=SEOUL_CENTER["zoom"],
@@ -53,10 +57,10 @@ def build_public_supply_map(public_supply):
             tooltip=folium.GeoJsonTooltip(fields=["ADM_NM"], aliases=["행정동"], sticky=False),
         ).add_to(supply_map)
 
-    markers = MarkerCluster(name="공공 시행 단지", disableClusteringAtZoom=15).add_to(supply_map)
+    markers = MarkerCluster(name="아파트 단지", disableClusteringAtZoom=15).add_to(supply_map)
 
-    for _, row in public_supply.loc[public_supply["좌표유효"]].iterrows():
-        color = AGENCY_COLORS.get(row["시행사_표시"], "#ff7f0e")
+    for _, row in apartment.loc[apartment["좌표유효"]].iterrows():
+        color = DEVELOPER_TYPE_COLORS.get(row["시행주체 구분"], "#9E9E9E")
         folium.CircleMarker(
             location=[row["위도"], row["경도"]],
             radius=6,
@@ -71,4 +75,3 @@ def build_public_supply_map(public_supply):
 
     folium.LayerControl(collapsed=True).add_to(supply_map)
     return supply_map
-
