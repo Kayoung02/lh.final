@@ -1,6 +1,7 @@
 """3번 탭: 서울시 정비사업 추진현황과 검증된 시공사 선정 근거."""
 
 import copy
+from datetime import date, timedelta
 
 import folium
 import pandas as pd
@@ -9,6 +10,8 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from common.config import SEOUL_CENTER
+from common.contractor_data import get_top20_companies, load_ranking_data
+from common.dart_collector import collect_dart_candidates, company_corp_codes, get_dart_api_key
 from common.renewal_data import (
     load_renewal_areas,
     load_renewal_evidence,
@@ -123,12 +126,71 @@ def render_renewal_map() -> None:
     st.markdown("#### 시공사 선정 근거")
     if evidence.empty:
         st.info("아직 등록된 근거가 없습니다. DART·조합 공식자료·건설사 보도자료를 확인한 뒤 `renewal_builder_evidence.csv`에 추가하면 지도와 이 표에 반영됩니다.")
+    else:
+        visible_evidence = evidence.loc[evidence["자치구"].eq(gu)] if gu != "전체 자치구" else evidence
+        st.dataframe(
+            visible_evidence[["사업명_원문", "자치구", "시공사_표준화", "브랜드명", "선정상태", "근거유형", "근거등급", "검증상태", "확인일"]],
+            hide_index=True, use_container_width=True,
+        )
+        for _, item in visible_evidence.loc[visible_evidence["원문URL"].ne("")].iterrows():
+            st.link_button(f"근거 열기 · {item['사업명_원문']} ({item['시공사_표준화']})", item["원문URL"])
+
+    st.divider()
+    st.markdown("#### OpenDART 공시 검토 후보")
+    st.caption("최근 공시 중 공급계약·공사수주·재개발·재건축 관련 제목을 후보로 찾습니다. 이 결과는 시공사 선정 확정 정보가 아니며, 원문 확인 후에만 근거 CSV에 등록하세요.")
+
+    api_key = get_dart_api_key()
+    if not api_key:
+        st.warning("DART_API_KEY가 Secrets에 설정되지 않았습니다. App settings → Secrets를 확인하세요.")
         return
-    visible_evidence = evidence.loc[evidence["자치구"].eq(gu)] if gu != "전체 자치구" else evidence
-    st.dataframe(
-        visible_evidence[["사업명_원문", "자치구", "시공사_표준화", "브랜드명", "선정상태", "근거유형", "근거등급", "검증상태", "확인일"]],
-        hide_index=True, use_container_width=True,
+
+    try:
+        ranking = load_ranking_data()
+        ranking_year = int(ranking["평가연도"].max())
+        dart_companies = get_top20_companies(ranking, "토건", ranking_year)
+    except (FileNotFoundError, ValueError) as error:
+        st.error(f"Top 20 시공사 목록을 불러오지 못했습니다: {error}")
+        return
+
+    dart_control1, dart_control2, dart_control3 = st.columns([2, 1, 1])
+    monitored_companies = dart_control1.multiselect(
+        f"조회 시공사 ({ranking_year}년 토건 Top 20)",
+        dart_companies,
+        default=dart_companies,
+        key="dart_monitored_companies",
     )
-    for _, item in visible_evidence.loc[visible_evidence["원문URL"].ne("")].iterrows():
-        st.link_button(f"근거 열기 · {item['사업명_원문']} ({item['시공사_표준화']})", item["원문URL"])
+    start_date = dart_control2.date_input("조회 시작일", value=date.today() - timedelta(days=365), key="dart_start_date")
+    end_date = dart_control3.date_input("조회 종료일", value=date.today(), key="dart_end_date")
+
+    if st.button("DART 공시 후보 조회", type="primary", disabled=not monitored_companies):
+        if start_date > end_date:
+            st.error("조회 시작일은 종료일보다 앞서야 합니다.")
+        else:
+            try:
+                company_codes, unmatched = company_corp_codes(api_key, monitored_companies)
+                candidates = collect_dart_candidates(
+                    api_key, company_codes, start_date.isoformat(), end_date.isoformat()
+                )
+                if unmatched:
+                    st.caption("DART 법인코드를 자동 연결하지 못한 시공사: " + ", ".join(unmatched))
+                if candidates.empty:
+                    st.info("선택 기간에 제목 기준으로 추출된 검토 후보가 없습니다.")
+                else:
+                    st.dataframe(
+                        candidates[["공시일", "시공사_표준화", "DART_회사명", "공시제목", "DART_접수번호", "판정"]],
+                        hide_index=True, use_container_width=True,
+                    )
+                    st.download_button(
+                        "검토 후보 CSV 내려받기",
+                        candidates.to_csv(index=False, encoding="utf-8-sig"),
+                        file_name="DART_정비사업_시공사_검토후보.csv",
+                        mime="text/csv",
+                    )
+                    for _, item in candidates.iterrows():
+                        st.link_button(
+                            f"공시 원문 열기 · {item['공시일']} · {item['시공사_표준화']} · {item['공시제목']}",
+                            item["원문URL"],
+                        )
+            except Exception as error:
+                st.error(f"DART 공시 조회 중 오류가 발생했습니다: {error}")
 
