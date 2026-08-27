@@ -7,17 +7,17 @@ from public_supply.public_supply_map import render_public_supply_map
 
 
 st.set_page_config(
-    page_title="서울 아파트 공급 현황",
+    page_title="서울 주택공급 현황",
     page_icon="🏙️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("서울 주택공급·브랜드 영토 레이더")
-st.caption("공공 시행 공급 · 시공사 점유율 · 정비사업 흐름을 하나의 지도 위에서 읽는 대시보드")
+st.title("서울 공동주택 사업주체·시공사 입지 분석")
+st.caption("아파트 단지의 시행주체, 시공사 분포, 정비사업 추진 현황을 공간적으로 분석합니다.")
 
 tab_guide, tab_public, tab_territory, tab_renewal = st.tabs(
-    ["0. 가이드북", "1. 공공 시행 공급지도", "2. 시공사 영토·도급순위", "3. 정비사업 레이더"]
+    ["0. 분석 안내", "1. 시행주체 현황", "2. 시공사 분포·시공능력평가", "3. 정비사업 현황"]
 )
 
 with tab_guide:
