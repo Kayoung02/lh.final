@@ -1,9 +1,7 @@
-# axis_a/territory_map.py
+"""2번 탭: 시공능력평가 변화와 서울 공동주택 시공 점유율."""
 
 import copy
 import json
-from pathlib import Path
-from urllib.request import Request, urlopen
 
 import folium
 import pandas as pd
@@ -11,842 +9,245 @@ import plotly.express as px
 import streamlit as st
 from streamlit_folium import st_folium
 
-
-# =========================================================
-# 1. 파일 위치
-# =========================================================
-
-ROOT = Path(__file__).resolve().parents[1]
-
-CSV_PATH = (
-    ROOT
-    / "data"
-    / "서울시_공동주택_1차전처리.csv"
+from common.config import SEOUL_GU_GEOJSON_PATH, SEOUL_CENTER
+from common.contractor_data import (
+    get_top20_companies,
+    load_ranking_data,
+    prepare_apartment_contractors,
+    summarize_contractor_share,
 )
-
-BOUNDARY_PATH = (
-    ROOT
-    / "data"
-    / "seoul_gu.geojson"
-)
-
-# 로컬 경계 파일이 없을 때 사용할 임시 경계
-BOUNDARY_URL = (
-    "https://raw.githubusercontent.com/"
-    "southkorea/seoul-maps/master/kostat/2013/json/"
-    "seoul_municipalities_geo_simple.json"
-)
+from common.data_loader import load_apartment_data
+from common.map_utils import _district_name, _ensure_wgs84
 
 
-# =========================================================
-# 2. 아파트 데이터 불러오기
-# =========================================================
+MAP_COLORS = [
+    "#205493", "#C65B28", "#4B8B63", "#8A5AA5", "#B64B67",
+    "#8E6B25", "#387C8B", "#6B7280", "#B979B2", "#719B45",
+]
+
 
 @st.cache_data(show_spinner=False)
-def load_apartment_data():
-    """CSV를 불러오고 분석에 필요한 값을 정리합니다."""
+def _load_gu_boundaries() -> dict:
+    if not SEOUL_GU_GEOJSON_PATH.exists():
+        raise FileNotFoundError(f"자치구 경계 파일을 찾을 수 없습니다: {SEOUL_GU_GEOJSON_PATH.name}")
+    with SEOUL_GU_GEOJSON_PATH.open(encoding="utf-8") as file:
+        boundaries = json.load(file)
+    _ensure_wgs84(boundaries)
+    return boundaries
+
+
+def _build_leader_map(boundaries: dict, leaders: pd.DataFrame):
+    boundary = copy.deepcopy(boundaries)
+    leader_lookup = leaders.set_index("시군구").to_dict("index")
+    companies = leaders["1위 시공사"].drop_duplicates().tolist()
+    colors = {company: MAP_COLORS[index % len(MAP_COLORS)] for index, company in enumerate(companies)}
+
+    for feature in boundary.get("features", []):
+        properties = feature.setdefault("properties", {})
+        district = _district_name(properties)
+        record = leader_lookup.get(district, {})
+        leader = record.get("1위 시공사", "Top20 시공사 없음")
+        properties["자치구"] = district or "미상"
+        properties["1위 시공사"] = leader
+        properties["보정 점유율"] = round(float(record.get("1위 보정 점유율(%)", 0)), 1)
+        properties["단지수"] = round(float(record.get("1위 단지수", 0)), 1)
+        properties["세대수"] = round(float(record.get("1위 세대수", 0)))
+        properties["동수"] = round(float(record.get("1위 동수", 0)))
+        properties["색상"] = colors.get(leader, "#E5E7EB")
 
-    if not CSV_PATH.exists():
-        raise FileNotFoundError(
-            f"CSV 파일을 찾을 수 없습니다: {CSV_PATH}"
-        )
-
-    df = None
-
-    # 한글 CSV 인코딩 자동 확인
-    for encoding in [
-        "utf-8-sig",
-        "cp949",
-        "euc-kr",
-    ]:
-        try:
-            df = pd.read_csv(
-                CSV_PATH,
-                encoding=encoding,
-            )
-            break
-
-        except UnicodeDecodeError:
-            continue
-
-    if df is None:
-        raise ValueError(
-            "CSV 파일 인코딩을 확인해주세요."
-        )
-
-    required_columns = [
-        "주소(시군구)",
-        "k-전체세대수",
-        "k-사용검사일-사용승인일",
-        "기업그룹",
-    ]
-
-    missing_columns = [
-        column
-        for column in required_columns
-        if column not in df.columns
-    ]
-
-    if missing_columns:
-        raise ValueError(
-            "CSV에 필요한 열이 없습니다: "
-            f"{missing_columns}"
-        )
-
-    # 자치구 정리
-    df["자치구"] = (
-        df["주소(시군구)"]
-        .astype("string")
-        .str.strip()
-    )
-
-    # 세대수 숫자 변환
-    df["세대수"] = pd.to_numeric(
-        df["k-전체세대수"]
-        .astype(str)
-        .str.replace(
-            ",",
-            "",
-            regex=False,
-        ),
-        errors="coerce",
-    )
-
-    # 사용승인연도 추출
-    df["승인일"] = pd.to_datetime(
-        df["k-사용검사일-사용승인일"],
-        errors="coerce",
-    )
-
-    df["승인연도"] = (
-        df["승인일"].dt.year
-    )
-
-    # 기업그룹 결측값 → 기타
-    df["기업그룹"] = (
-        df["기업그룹"]
-        .astype("string")
-        .fillna("기타")
-        .str.strip()
-    )
-
-    none_values = [
-        "",
-        "none",
-        "nan",
-        "null",
-        "<na>",
-    ]
-
-    df.loc[
-        df["기업그룹"]
-        .str.lower()
-        .isin(none_values),
-        "기업그룹",
-    ] = "기타"
-
-    # 분석에 필요한 값이 없는 행 제거
-    df = df.dropna(
-        subset=[
-            "자치구",
-            "세대수",
-            "승인연도",
-        ]
-    )
-
-    # 서울 자치구 및 정상 세대수만 사용
-    df = df[
-        (df["세대수"] > 0)
-        & (df["자치구"].str.endswith("구"))
-    ].copy()
-
-    df["승인연도"] = (
-        df["승인연도"].astype(int)
-    )
-
-    return df
-
-
-# =========================================================
-# 3. 서울 자치구 경계 불러오기
-# =========================================================
-
-@st.cache_data(show_spinner=False)
-def load_seoul_boundary():
-    """
-    로컬 경계 파일을 우선 사용하고,
-    없으면 인터넷의 임시 경계를 불러옵니다.
-    """
-
-    if BOUNDARY_PATH.exists():
-        with open(
-            BOUNDARY_PATH,
-            "r",
-            encoding="utf-8",
-        ) as file:
-            return json.load(file)
-
-    request = Request(
-        BOUNDARY_URL,
-        headers={
-            "User-Agent": "Mozilla/5.0"
-        },
-    )
-
-    with urlopen(
-        request,
-        timeout=20,
-    ) as response:
-        return json.loads(
-            response
-            .read()
-            .decode("utf-8")
-        )
-
-
-# =========================================================
-# 4. 컨소시엄 배분 및 점유율 계산
-# =========================================================
-
-def calculate_share(
-    df,
-    metric,
-    household_weight=0.5,
-):
-    """
-    컨소시엄은 참여 시공사 수에 따라 1/n로 배분합니다.
-
-    예:
-    삼성물산;현대건설
-    → 세대수와 단지수를 각각 1/2씩 배분
-    """
-
-    work = (
-        df.reset_index(drop=True)
-        .copy()
-    )
-
-    work["단지ID"] = work.index
-
-    # 세미콜론 기준으로 컨소시엄 분리
-    work["참여기업"] = (
-        work["기업그룹"]
-        .str.split(";")
-    )
-
-    work["참여사수"] = (
-        work["참여기업"]
-        .str.len()
-        .clip(lower=1)
-    )
-
-    expanded = work.explode(
-        "참여기업"
-    )
-
-    expanded["참여기업"] = (
-        expanded["참여기업"]
-        .astype("string")
-        .str.strip()
-        .replace("", "기타")
-        .fillna("기타")
-    )
-
-    # 컨소시엄 1/n 세대수 배분
-    expanded["배분세대수"] = (
-        expanded["세대수"]
-        / expanded["참여사수"]
-    )
-
-    # 컨소시엄 1/n 단지수 배분
-    expanded["배분단지수"] = (
-        1
-        / expanded["참여사수"]
-    )
-
-    stats = (
-        expanded
-        .groupby(
-            [
-                "자치구",
-                "참여기업",
-            ],
-            as_index=False,
-        )
-        .agg(
-            세대수=(
-                "배분세대수",
-                "sum",
-            ),
-            단지수=(
-                "배분단지수",
-                "sum",
-            ),
-        )
-    )
-
-    # 자치구별 전체 세대수
-    stats["자치구전체세대수"] = (
-        stats
-        .groupby("자치구")["세대수"]
-        .transform("sum")
-    )
-
-    # 자치구별 전체 단지수
-    stats["자치구전체단지수"] = (
-        stats
-        .groupby("자치구")["단지수"]
-        .transform("sum")
-    )
-
-    # 세대수 점유율
-    stats["세대수점유율"] = (
-        stats["세대수"]
-        / stats["자치구전체세대수"]
-        * 100
-    )
-
-    # 단지수 점유율
-    stats["단지수점유율"] = (
-        stats["단지수"]
-        / stats["자치구전체단지수"]
-        * 100
-    )
-
-    # 종합 영토지수
-    stats["종합영토지수"] = (
-        household_weight
-        * stats["세대수점유율"]
-        + (
-            1 - household_weight
-        )
-        * stats["단지수점유율"]
-    )
-
-    metric_columns = {
-        "세대수 점유율": "세대수점유율",
-        "단지수 점유율": "단지수점유율",
-        "종합 영토지수": "종합영토지수",
-    }
-
-    metric_column = (
-        metric_columns[metric]
-    )
-
-    stats["점유율"] = (
-        stats[metric_column]
-    )
-
-    return stats
-
-
-# =========================================================
-# 5. Folium 지도 만들기
-# =========================================================
-
-def build_map(
-    boundary,
-    stats,
-):
-    """
-    고정된 네모 박스는 표시하지 않습니다.
-
-    자치구에 마우스를 올리면:
-    - 자치구명
-    - 1위 시공사
-    - 점유율
-
-    정보가 나타납니다.
-    """
-
-    boundary = copy.deepcopy(
-        boundary
-    )
-
-    # 기타는 전체 분모에는 포함하지만
-    # 1위 시공사 경쟁에서는 제외
-    ranking = stats[
-        stats["참여기업"] != "기타"
-    ].copy()
-
-    # 기타 외 기업이 하나도 없을 경우
-    if ranking.empty:
-        ranking = stats.copy()
-
-    leader_index = (
-        ranking
-        .groupby("자치구")["점유율"]
-        .idxmax()
-    )
-
-    leaders = (
-        ranking
-        .loc[leader_index]
-        .set_index("자치구")
-        .to_dict("index")
-    )
-
-    # 자치구 경계에 통계 속성 추가
-    for feature in boundary["features"]:
-        properties = feature.setdefault(
-            "properties",
-            {},
-        )
-
-        gu_name = (
-            properties.get("name")
-            or properties.get("SIG_KOR_NM")
-            or properties.get("자치구")
-        )
-
-        result = leaders.get(
-            gu_name
-        )
-
-        properties["자치구"] = (
-            gu_name
-        )
-
-        if result:
-            properties["1위 시공사"] = (
-                result["참여기업"]
-            )
-
-            properties["점유율 표시"] = (
-                f"{result['점유율']:.1f}%"
-            )
-
-            properties["점유율 숫자"] = (
-                float(
-                    result["점유율"]
-                )
-            )
-
-        else:
-            properties["1위 시공사"] = (
-                "데이터 없음"
-            )
-
-            properties["점유율 표시"] = (
-                "-"
-            )
-
-            properties["점유율 숫자"] = (
-                0.0
-            )
-
-    # 서울 중심 지도
     territory_map = folium.Map(
-        location=[
-            37.5665,
-            126.9780,
-        ],
-        zoom_start=10,
+        location=[SEOUL_CENTER["lat"], SEOUL_CENTER["lon"]],
+        zoom_start=10.6,
         tiles=None,
         control_scale=True,
     )
-
-    # 밝은 배경지도
-    folium.TileLayer(
-        tiles="CartoDB positron",
-        name="밝은 지도",
-        control=True,
-    ).add_to(territory_map)
-
-    # 일반 배경지도
-    folium.TileLayer(
-        tiles="OpenStreetMap",
-        name="일반 지도",
-        control=True,
-    ).add_to(territory_map)
-
-    # 자치구 기본 스타일
-    def style_function(feature):
-        share = (
-            feature["properties"]
-            .get(
-                "점유율 숫자",
-                0,
-            )
-        )
-
-        return {
-            "fillColor": "#2563EB",
-            "color": "#475569",
-            "weight": 1.2,
-            "fillOpacity": min(
-                0.18
-                + share / 60,
-                0.75,
-            ),
-        }
-
-    # 마우스를 올렸을 때 스타일
-    def highlight_function(_):
-        return {
-            "color": "#111827",
-            "weight": 3,
-            "fillOpacity": 0.8,
-        }
-
+    folium.TileLayer("CartoDB positron", control=False).add_to(territory_map)
     folium.GeoJson(
         boundary,
-        name="자치구별 시공사 점유율",
-        style_function=style_function,
-        highlight_function=highlight_function,
-
-        # 고정 네모 박스 대신 툴팁 사용
+        style_function=lambda feature: {
+            "fillColor": feature["properties"].get("색상", "#E5E7EB"),
+            "color": "#4B5563",
+            "weight": 1.1,
+            "fillOpacity": 0.73,
+        },
+        highlight_function=lambda _: {"color": "#111827", "weight": 2.2, "fillOpacity": 0.9},
         tooltip=folium.GeoJsonTooltip(
-            fields=[
-                "자치구",
-                "1위 시공사",
-                "점유율 표시",
-            ],
-            aliases=[
-                "자치구",
-                "1위 시공사",
-                "점유율",
-            ],
+            fields=["자치구", "1위 시공사", "보정 점유율", "단지수", "세대수", "동수"],
+            aliases=["자치구", "Top20 내 1위 시공사", "보정 시공 점유율(%)", "단지수", "세대수", "동수"],
+            localize=True,
             sticky=False,
-            labels=True,
-            style="""
-                background-color: white;
-                border: 1px solid #CBD5E1;
-                border-radius: 6px;
-                padding: 8px;
-                color: #111827;
-                font-size: 13px;
-            """,
         ),
     ).add_to(territory_map)
+    territory_map.fit_bounds([[37.41, 126.76], [37.71, 127.19]])
 
-    # 서울 전체가 첫 화면에 보이도록 설정
-    territory_map.fit_bounds(
-        [
-            [
-                37.41,
-                126.76,
-            ],
-            [
-                37.71,
-                127.19,
-            ],
-        ]
+    legend = "".join(
+        f"<div><span style='display:inline-block;width:10px;height:10px;background:{color};margin-right:6px;border-radius:2px;'></span>{company}</div>"
+        for company, color in colors.items()
     )
-
-    folium.LayerControl(
-        collapsed=True
-    ).add_to(territory_map)
-
+    territory_map.get_root().html.add_child(
+        folium.Element(
+            "<div style='position:fixed;bottom:24px;left:24px;z-index:1000;"
+            "background:rgba(255,255,255,.94);border:1px solid #d1d5db;border-radius:6px;"
+            "padding:9px 11px;font-size:12px;line-height:1.55;max-height:230px;overflow:auto;'>"
+            "<strong>자치구별 Top20 내 1위 시공사</strong>" + legend + "</div>"
+        )
+    )
     return territory_map
 
 
-# =========================================================
-# 6. 선택 자치구 원형 그래프
-# =========================================================
-
-def draw_donut(
-    stats,
-    selected_gu,
-    metric,
-):
-    selected = (
-        stats[
-            stats["자치구"]
-            == selected_gu
-        ]
-        .sort_values(
-            "점유율",
-            ascending=False,
+def _ranking_chart(data: pd.DataFrame, metric: str) -> None:
+    if metric == "순위":
+        figure = px.line(
+            data, x="평가연도", y="순위", color="시공사", markers=True,
+            labels={"평가연도": "평가연도", "순위": "시공능력평가 순위", "시공사": "시공사"},
         )
-        .copy()
-    )
-
-    if selected.empty:
-        st.info(
-            "표시할 데이터가 없습니다."
+        figure.update_yaxes(autorange="reversed", dtick=1)
+    else:
+        chart_data = data.copy()
+        chart_data["시공능력평가액_억원"] = chart_data["시공능력평가액_백만원"] / 100
+        figure = px.line(
+            chart_data, x="평가연도", y="시공능력평가액_억원", color="시공사", markers=True,
+            labels={"평가연도": "평가연도", "시공능력평가액_억원": "시공능력평가액(억원)", "시공사": "시공사"},
         )
+    figure.update_layout(margin=dict(l=0, r=0, t=20, b=0), legend_title_text="시공사")
+    st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
+
+
+def _district_detail(all_by_company: pd.DataFrame, district: str, focus_company: str) -> None:
+    district_data = all_by_company.loc[all_by_company["시군구"].eq(district)].copy()
+    if district_data.empty:
+        st.info("선택한 기간에 해당 자치구의 시공사 데이터가 없습니다.")
         return
 
-    fig = px.pie(
-        selected,
-        names="참여기업",
-        values="점유율",
-        hole=0.58,
+    focus = district_data.loc[district_data["시공사"].eq(focus_company)]
+    focus = focus.iloc[0] if not focus.empty else None
+    st.markdown(f"#### {district} · 시공사 점유율")
+    if focus is not None:
+        metric1, metric2, metric3 = st.columns(3)
+        metric1.metric(f"{focus_company} 보정 점유율", f"{focus['보정 시공 점유율(%)']:.1f}%")
+        metric2.metric("배분 단지 수", f"{focus['단지수']:.1f}개")
+        metric3.metric("배분 세대 수", f"{focus['세대수']:,.0f}세대")
+    else:
+        st.caption(f"{focus_company}는 선택 기간의 {district} 시공 단지에 없습니다.")
+
+    chart_data = district_data.sort_values("보정 시공 점유율(%)", ascending=False).head(9).copy()
+    remainder = district_data.iloc[9:]["보정 시공 점유율(%)"].sum()
+    if remainder:
+        chart_data = pd.concat(
+            [chart_data, pd.DataFrame([{"시공사": "기타 시공사", "보정 시공 점유율(%)": remainder}])],
+            ignore_index=True,
+        )
+    figure = px.pie(
+        chart_data, names="시공사", values="보정 시공 점유율(%)", hole=0.55,
+        title=f"{district}의 시공사 구성",
     )
-
-    fig.update_traces(
-        textposition="inside",
-        textinfo="percent",
-        hovertemplate=(
-            "<b>%{label}</b><br>"
-            "%{value:.1f}%"
-            "<extra></extra>"
-        ),
-    )
-
-    fig.update_layout(
-        title=(
-            f"{selected_gu} · {metric}"
-        ),
-        margin=dict(
-            l=10,
-            r=10,
-            t=60,
-            b=10,
-        ),
-        height=430,
-        legend_title_text="시공사",
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-    )
-
-    # 상세표
-    table = selected[
-        [
-            "참여기업",
-            "세대수",
-            "단지수",
-            "점유율",
-        ]
-    ].copy()
-
-    table.columns = [
-        "시공사",
-        "배분 세대수",
-        "배분 단지수",
-        "점유율(%)",
-    ]
-
-    table["배분 세대수"] = (
-        table["배분 세대수"]
-        .round(0)
-        .astype(int)
-    )
-
-    table["배분 단지수"] = (
-        table["배분 단지수"]
-        .round(1)
-    )
-
-    table["점유율(%)"] = (
-        table["점유율(%)"]
-        .round(1)
-    )
-
-    st.dataframe(
-        table,
-        hide_index=True,
-        use_container_width=True,
-    )
+    figure.update_traces(textinfo="percent", texttemplate="%{percent:.1%}")
+    figure.update_layout(margin=dict(l=0, r=0, t=55, b=0), legend_title_text="시공사")
+    st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
 
 
-# =========================================================
-# 7. Streamlit 화면
-# =========================================================
-
-def render_territory_map():
-    st.subheader(
-        "서울 시공사 영토지도"
+def render_axis_a() -> None:
+    st.subheader("시공사 시공능력평가·서울 시공 점유율")
+    st.caption(
+        "선택 업종의 기준연도 Top 20 시공사가 시공능력평가에서 어떻게 변화했는지와, "
+        "서울 자치구별 공동주택 시공 점유율을 함께 살펴봅니다."
     )
 
     try:
-        df = load_apartment_data()
-        boundary = load_seoul_boundary()
-
-    except Exception as error:
-        st.error(
-            f"데이터를 불러오지 못했습니다: {error}"
-        )
+        ranking = load_ranking_data()
+        apartment = load_apartment_data()
+        boundaries = _load_gu_boundaries()
+    except (FileNotFoundError, ValueError) as error:
+        st.error(str(error))
         return
 
-    min_year = int(
-        df["승인연도"].min()
-    )
+    industries = sorted(ranking["업종코드"].dropna().unique())
+    years = sorted(ranking["평가연도"].unique())
+    control1, control2, control3 = st.columns([1, 1, 2])
+    with control1:
+        industry = st.selectbox("시공능력평가 업종", industries, index=industries.index("토건") if "토건" in industries else 0)
+    with control2:
+        base_year = st.selectbox("Top 20 선정 기준연도", years, index=len(years) - 1)
 
-    max_year = int(
-        df["승인연도"].max()
-    )
-
-    # 사이드바 설정
-    with st.sidebar:
-        st.markdown(
-            "### 영토지도 설정"
+    top20 = get_top20_companies(ranking, industry, base_year)
+    default_companies = top20[:5]
+    with control3:
+        selected_companies = st.multiselect(
+            "추이와 지도에서 비교할 시공사", top20, default=default_companies
         )
-
-        period_mode = st.radio(
-            "시간 기준",
-            [
-                "기간 공급",
-                "누적 공급",
-            ],
-            horizontal=True,
-        )
-
-        if period_mode == "기간 공급":
-            start_year, end_year = (
-                st.slider(
-                    "사용승인연도",
-                    min_year,
-                    max_year,
-                    (
-                        min_year,
-                        max_year,
-                    ),
-                )
-            )
-
-            filtered = df[
-                df["승인연도"]
-                .between(
-                    start_year,
-                    end_year,
-                )
-            ].copy()
-
-        else:
-            end_year = st.slider(
-                "누적 기준연도",
-                min_year,
-                max_year,
-                max_year,
-            )
-
-            filtered = df[
-                df["승인연도"]
-                <= end_year
-            ].copy()
-
-        metric = st.radio(
-            "점유율 기준",
-            [
-                "세대수 점유율",
-                "단지수 점유율",
-                "종합 영토지수",
-            ],
-        )
-
-        household_weight = 0.5
-
-        if metric == "종합 영토지수":
-            household_weight = (
-                st.slider(
-                    "세대수 가중치",
-                    min_value=0,
-                    max_value=100,
-                    value=50,
-                    step=10,
-                )
-                / 100
-            )
-
-            st.caption(
-                f"세대수 {household_weight:.0%} · "
-                f"단지수 {1-household_weight:.0%}"
-            )
-
-    if filtered.empty:
-        st.warning(
-            "선택한 기간에 표시할 데이터가 없습니다."
-        )
+    if not selected_companies:
+        st.info("Top 20 시공사 중 하나 이상을 선택하세요.")
         return
 
-    stats = calculate_share(
-        filtered,
-        metric,
-        household_weight,
-    )
-
-    territory_map = build_map(
-        boundary,
-        stats,
-    )
-
-    # 지도와 원형 그래프 배치
-    map_column, chart_column = (
-        st.columns(
-            [
-                1.7,
-                1,
-            ],
-            gap="large",
+    trend = ranking.loc[
+        ranking["업종코드"].eq(industry) & ranking["시공사"].isin(selected_companies)
+    ].copy()
+    trend = trend.sort_values(["평가연도", "순위"])
+    chart_column, note_column = st.columns([1.7, 0.8], gap="large")
+    with chart_column:
+        st.markdown(f"#### {industry} 시공능력평가 변화")
+        metric = st.radio("그래프 기준", ["순위", "시공능력평가액"], horizontal=True)
+        _ranking_chart(trend, metric)
+    with note_column:
+        st.markdown("#### 해석 기준")
+        st.info(
+            "평가액은 건설공사 도급순위의 지표인 시공능력평가액이며, 실제 계약금액이나 아파트 매출과는 다릅니다."
         )
-    )
+        st.caption(
+            f"{base_year}년 {industry} Top 20을 후보군으로 삼았습니다. "
+            "회사명은 별칭표를 통해 법인 기준으로 연결합니다."
+        )
 
+    expanded = prepare_apartment_contractors(apartment)
+    available_years = expanded["사용승인연도"].dropna().astype(int)
+    min_year, max_year = int(available_years.min()), int(available_years.max())
+    start_year, end_year = st.slider(
+        "서울 공동주택 사용승인 기간", min_year, max_year, (min_year, max_year)
+    )
+    candidate_stats, leaders, all_by_company = summarize_contractor_share(
+        expanded, selected_companies, start_year, end_year
+    )
+    if candidate_stats.empty:
+        st.warning("선택한 Top 20 시공사의 서울 공동주택 시공 이력이 없습니다.")
+        return
+
+    st.divider()
+    st.markdown("#### 자치구별 Top 20 시공사 1위")
+    st.caption(
+        "자치구 전체 시공 물량을 분모로 계산합니다. 보정 시공 점유율 = 세대수 비중 70% + 동수 비중 30%. "
+        "공동시공 단지는 참여사 수만큼 균등 배분합니다."
+    )
+    map_column, detail_column = st.columns([1.7, 1], gap="large")
     with map_column:
         map_result = st_folium(
-            territory_map,
-            height=650,
+            _build_leader_map(boundaries, leaders),
+            height=600,
             use_container_width=True,
-            key="territory_map",
+            returned_objects=["last_active_drawing"],
+            key="contractor_share_map",
         )
+        drawing = map_result.get("last_active_drawing") if map_result else None
+        clicked = (drawing or {}).get("properties", {}).get("자치구")
+        if clicked:
+            st.session_state["contractor_selected_gu"] = clicked
 
-    # 지도에서 클릭한 자치구 확인
-    if map_result:
-        drawing = map_result.get(
-            "last_active_drawing"
+    districts = sorted(all_by_company["시군구"].unique())
+    selected_gu = st.session_state.get("contractor_selected_gu", districts[0])
+    if selected_gu not in districts:
+        selected_gu = districts[0]
+    with detail_column:
+        selected_gu = st.selectbox(
+            "상세 자치구", districts, index=districts.index(selected_gu), key="contractor_gu_select"
         )
-
-        if drawing:
-            properties = drawing.get(
-                "properties",
-                {},
-            )
-
-            clicked_gu = properties.get(
-                "자치구"
-            )
-
-            if clicked_gu:
-                st.session_state[
-                    "selected_gu"
-                ] = clicked_gu
-
-    selected_gu = (
-        st.session_state.get(
-            "selected_gu"
+        st.session_state["contractor_selected_gu"] = selected_gu
+        companies_in_gu = sorted(all_by_company.loc[all_by_company["시군구"].eq(selected_gu), "시공사"].unique())
+        preferred = leaders.loc[leaders["시군구"].eq(selected_gu), "1위 시공사"]
+        default_company = preferred.iloc[0] if not preferred.empty else companies_in_gu[0]
+        focus_company = st.selectbox(
+            "상세 시공사", companies_in_gu, index=companies_in_gu.index(default_company) if default_company in companies_in_gu else 0
         )
-    )
-
-    with chart_column:
-        if selected_gu:
-            draw_donut(
-                stats,
-                selected_gu,
-                metric,
-            )
-
-        else:
-            st.info(
-                "지도에서 자치구를 클릭하면 "
-                "시공사별 점유율이 표시됩니다."
-            )
+        _district_detail(all_by_company, selected_gu, focus_company)
 
 
-# =========================================================
-# 8. 외부에서 호출할 실행 함수
-# =========================================================
-
-def render_axis_a():
-    """
-    streamlit_app.py에서 사용하는 함수입니다.
-
-    from axis_a.territory_map import render_axis_a
+def render() -> None:
     render_axis_a()
-    """
-
-    render_territory_map()
-
-
-def render():
-    """render라는 이름으로 불러와도 작동합니다."""
-
-    render_territory_map()
-
-
-# 이 파일을 단독으로 실행할 때
-if __name__ == "__main__":
-    render_territory_map()
