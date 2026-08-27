@@ -7,7 +7,7 @@ from public_supply.public_supply_map import render_public_supply_map
 
 
 st.set_page_config(
-    page_title="서울 주택공급현황",
+    page_title="서울 주택공급브랜드 영토 ·레이더",
     page_icon="🏙️",
     layout="wide",
     initial_sidebar_state="expanded",
