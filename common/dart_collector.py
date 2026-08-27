@@ -1,6 +1,8 @@
 """OpenDART 공시에서 정비사업 시공사 선정 관련 검토 후보를 찾는 함수."""
 
 import io
+import html
+import re
 import zipfile
 import xml.etree.ElementTree as etree
 from datetime import date
@@ -119,3 +121,67 @@ def collect_dart_candidates(
     return pd.DataFrame(rows).sort_values(["공시일", "시공사_표준화"], ascending=[False, True]) if rows else pd.DataFrame(
         columns=["공시일", "시공사_표준화", "DART_회사명", "공시제목", "공시유형", "DART_접수번호", "원문URL", "판정"]
     )
+
+
+def _document_text(content: bytes) -> str:
+    archive = zipfile.ZipFile(io.BytesIO(content))
+    xml_files = [name for name in archive.namelist() if name.lower().endswith((".xml", ".html", ".htm"))]
+    pieces = []
+    for name in xml_files:
+        raw = archive.read(name)
+        try:
+            decoded = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            decoded = raw.decode("cp949", errors="ignore")
+        pieces.append(re.sub(r"<[^>]+>", " ", decoded))
+    return re.sub(r"\s+", " ", html.unescape(" ".join(pieces))).strip()
+
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def disclosure_contract_details(api_key: str, receipt_no: str) -> dict[str, str]:
+    response = requests.get(
+        f"{DART_API}/document.xml",
+        params={"crtfc_key": api_key, "rcept_no": receipt_no},
+        timeout=45,
+    )
+    response.raise_for_status()
+    text = _document_text(response.content)
+
+    def field(label_pattern: str, stop_pattern: str) -> str:
+        match = re.search(
+            rf"(?:{label_pattern})\\s*[:：]?\\s*(.+?)(?=(?:{stop_pattern})|$)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return match.group(1).strip(" -") if match else ""
+
+    return {
+        "계약명": field(
+            r"계약명",
+            r"계약상대(?:방)?|계약금액|최근매출액|매출액|계약시작일|계약종료일|계약기간|계약조건|유보기한|공사개요",
+        ),
+        "계약상대방": field(
+            r"계약상대(?:방)?",
+            r"계약금액|최근매출액|매출액|계약시작일|계약종료일|계약기간|계약조건|유보기한|공사개요",
+        ),
+        "공급지역": field(
+            r"판매[ㆍ·]?공급지역",
+            r"계약기간|계약조건|공사[\s]*개요|유보기한|기타",
+        ),
+        "공사개요": field(
+            r"공사[\s]*개요",
+            r"상기|공사도급계약서|※|주[\s]*요",
+        ),
+    }
+
+
+def enrich_dart_candidates(api_key: str, candidates: pd.DataFrame) -> pd.DataFrame:
+    if candidates.empty:
+        return candidates.copy()
+    enriched = candidates.copy()
+    details = enriched["DART_접수번호"].map(
+        lambda receipt_no: disclosure_contract_details(api_key, receipt_no)
+    )
+    for column in ("계약명", "계약상대방", "공급지역", "공사개요"):
+        enriched[column] = details.map(lambda item: item.get(column, ""))
+    return enriched
