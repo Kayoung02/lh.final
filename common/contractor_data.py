@@ -9,6 +9,18 @@ import streamlit as st
 from common.config import COMPANY_ALIAS_MAP_PATH, RANKING_DATA_PATH
 
 
+# 공동주택 원자료의 '시공사' 열에 시행·공급기관이 잘못 기입된 사례는
+# 시공사 점유율 분석에서 제외한다. 실제 시공사 정보가 확인되지 않았다는 뜻이다.
+NON_CONTRACTOR_DEVELOPER_KEYS = {
+    "LH", "LH공사", "한국토지주택공사", "대한주택공사",
+    "SH", "SH공사", "서울주택도시공사", "서울특별시도시개발공사",
+}
+
+
+def _is_non_contractor_developer(value) -> bool:
+    return _compact_name(value) in {_compact_name(item) for item in NON_CONTRACTOR_DEVELOPER_KEYS}
+
+
 def _compact_name(value) -> str:
     text = "" if pd.isna(value) else str(value)
     text = text.replace("(주)", "").replace("㈜", "").replace("주식회사", "")
@@ -95,9 +107,17 @@ def prepare_apartment_contractors(apartment: pd.DataFrame) -> pd.DataFrame:
     data["참여시공사"] = data["시공사_원천"].astype(str).str.split(";")
     data["참여사수"] = data["참여시공사"].str.len().clip(lower=1)
     expanded = data.explode("참여시공사").copy()
+    # LH·SH 등 시행·공급기관이 시공사 열에 들어간 오기재는 분석 대상에서 제외한다.
+    expanded = expanded.loc[
+        ~expanded["참여시공사"].map(_is_non_contractor_developer)
+    ].copy()
     expanded["시공사"] = expanded["참여시공사"].map(
         lambda value: normalize_company_name(value, aliases)
     )
+    expanded = expanded.loc[
+        ~expanded["시공사"].map(_is_non_contractor_developer)
+        & expanded["시공사"].ne("미상")
+    ].copy()
     expanded["배분세대수"] = expanded["세대수"] / expanded["참여사수"]
     expanded["배분동수"] = expanded["동수"] / expanded["참여사수"]
     expanded["배분단지수"] = 1 / expanded["참여사수"]
