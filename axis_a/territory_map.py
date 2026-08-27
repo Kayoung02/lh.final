@@ -26,6 +26,23 @@ MAP_COLORS = [
 ]
 
 
+
+PAGE_STYLE = """
+<style>
+[data-testid="stMetric"] { background:#f8fafc; border:1px solid #d9e2ec; border-radius:10px; padding:14px 16px; }
+[data-testid="stMetricLabel"] { font-size:.92rem; font-weight:650; color:#334155; }
+[data-testid="stMetricValue"] { font-size:1.45rem; color:#102a43; }
+[data-testid="stMetricDelta"] { font-size:.88rem; font-weight:600; }
+[data-testid="stSelectbox"] label, [data-testid="stMultiSelect"] label, [data-testid="stRadio"] label { font-weight:650; color:#1f3b57; }
+[data-baseweb="select"] > div { background:#fff; border-color:#b8c8d8; min-height:42px; }
+</style>
+"""
+
+
+def _apply_page_style() -> None:
+    st.markdown(PAGE_STYLE, unsafe_allow_html=True)
+
+
 @st.cache_data(show_spinner=False)
 def _load_gu_boundaries() -> dict:
     if not SEOUL_GU_GEOJSON_PATH.exists():
@@ -96,21 +113,82 @@ def _build_leader_map(boundaries: dict, leaders: pd.DataFrame):
 
 
 def _ranking_chart(data: pd.DataFrame, metric: str) -> None:
+    chart_data = data.copy()
+    chart_data["시공능력평가액_억원"] = chart_data["시공능력평가액_백만원"] / 100
+    chart_data = chart_data.sort_values(["시공사", "평가연도"])
+    chart_data["평가액 전년 대비(%)"] = (
+        chart_data.groupby("시공사")["시공능력평가액_억원"].pct_change(fill_method=None).mul(100)
+    )
     if metric == "순위":
         figure = px.line(
-            data, x="평가연도", y="순위", color="시공사", markers=True,
+            chart_data, x="평가연도", y="순위", color="시공사", markers=True,
+            custom_data=["시공능력평가액_억원", "평가액 전년 대비(%)"],
             labels={"평가연도": "평가연도", "순위": "시공능력평가 순위", "시공사": "시공사"},
         )
-        figure.update_yaxes(autorange="reversed", dtick=1)
+        figure.update_yaxes(autorange="reversed", dtick=1, title="시공능력평가 순위")
+        hover_template = (
+            "<b>%{fullData.name}</b><br>평가연도: %{x}년<br>순위: %{y}위"
+            "<br>시공능력평가액: %{customdata[0]:,.0f}억원"
+            "<br>평가액 전년 대비: %{customdata[1]:+.1f}%<extra></extra>"
+        )
     else:
-        chart_data = data.copy()
-        chart_data["시공능력평가액_억원"] = chart_data["시공능력평가액_백만원"] / 100
         figure = px.line(
             chart_data, x="평가연도", y="시공능력평가액_억원", color="시공사", markers=True,
+            custom_data=["순위", "평가액 전년 대비(%)"],
             labels={"평가연도": "평가연도", "시공능력평가액_억원": "시공능력평가액(억원)", "시공사": "시공사"},
         )
-    figure.update_layout(margin=dict(l=0, r=0, t=20, b=0), legend_title_text="시공사")
+        figure.update_yaxes(title="시공능력평가액(억원)", separatethousands=True)
+        hover_template = (
+            "<b>%{fullData.name}</b><br>평가연도: %{x}년<br>시공능력평가액: %{y:,.0f}억원"
+            "<br>순위: %{customdata[0]:.0f}위<br>전년 대비: %{customdata[1]:+.1f}%<extra></extra>"
+        )
+    figure.update_traces(hovertemplate=hover_template, line={"width": 2.6}, marker={"size": 7})
+    figure.update_layout(
+        height=480, margin=dict(l=8, r=8, t=20, b=54), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+        hoverlabel={"bgcolor": "#ffffff", "font_size": 14, "font_family": "Arial"},
+        legend={"orientation": "h", "yanchor": "top", "y": -0.20, "xanchor": "left", "x": 0},
+    )
+    figure.update_xaxes(showgrid=False, dtick=2, title="평가연도")
+    figure.update_yaxes(gridcolor="#e8eef5", zeroline=False)
     st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
+
+
+def _latest_company_snapshot(trend: pd.DataFrame, company: str) -> tuple[pd.Series, pd.Series | None]:
+    company_data = trend.loc[trend["시공사"].eq(company)].sort_values("평가연도")
+    latest = company_data.iloc[-1]
+    earlier = company_data.loc[company_data["평가연도"].lt(latest["평가연도"])]
+    return latest, (earlier.iloc[-1] if not earlier.empty else None)
+
+
+def _trend_summary(trend: pd.DataFrame, companies: list[str]) -> None:
+    st.markdown("#### 선택 시공사 최근 연도 요약")
+    summary_company = st.selectbox("요약 시공사", companies, key="trend_summary_company")
+    latest, previous = _latest_company_snapshot(trend, summary_company)
+    year, amount = int(latest["평가연도"]), float(latest["시공능력평가액_백만원"]) / 100
+    rank_delta = None if previous is None else int(previous["순위"] - latest["순위"])
+    amount_delta = None if previous is None or float(previous["시공능력평가액_백만원"]) == 0 else (
+        (float(latest["시공능력평가액_백만원"]) / float(previous["시공능력평가액_백만원"]) - 1) * 100
+    )
+    metric_rank, metric_amount, metric_year = st.columns(3)
+    metric_rank.metric(f"{year}년 시공능력평가 순위", f"{int(latest['순위'])}위",
+                       "비교자료 없음" if rank_delta is None else f"전년 대비 {rank_delta:+d}위 (＋는 상승)")
+    metric_amount.metric(f"{year}년 시공능력평가액", f"{amount:,.0f}억원",
+                         "비교자료 없음" if amount_delta is None else f"전년 대비 {amount_delta:+.1f}%")
+    metric_year.metric("비교 기준", f"{year}년", "평가연도 기준 · 월별 자료 아님")
+
+    table_rows = []
+    for company in companies:
+        item, prior = _latest_company_snapshot(trend, company)
+        current_amount = float(item["시공능력평가액_백만원"]) / 100
+        if prior is not None and float(prior["시공능력평가액_백만원"]) != 0:
+            yoy = (current_amount / (float(prior["시공능력평가액_백만원"]) / 100) - 1) * 100
+            rank_change = f"{int(prior['순위'] - item['순위']):+d}위"
+        else:
+            yoy, rank_change = None, "비교자료 없음"
+        table_rows.append({"시공사": company, "최근 평가연도": int(item["평가연도"]), "순위": f"{int(item['순위'])}위",
+                           "순위 변동": rank_change, "시공능력평가액": f"{current_amount:,.0f}억원",
+                           "평가액 전년 대비": "비교자료 없음" if yoy is None else f"{yoy:+.1f}%"})
+    st.dataframe(pd.DataFrame(table_rows), hide_index=True, use_container_width=True)
 
 
 def _district_detail(all_by_company: pd.DataFrame, district: str, focus_company: str) -> None:
@@ -147,6 +225,7 @@ def _district_detail(all_by_company: pd.DataFrame, district: str, focus_company:
 
 
 def render_axis_a() -> None:
+    _apply_page_style()
     st.subheader("시공사 시공능력평가·서울 시공 점유율")
     st.caption(
         "선택 업종의 기준연도 Top 20 시공사가 시공능력평가에서 어떻게 변화했는지와, "
@@ -182,21 +261,16 @@ def render_axis_a() -> None:
     trend = ranking.loc[
         ranking["업종코드"].eq(industry) & ranking["시공사"].isin(selected_companies)
     ].copy()
-    trend = trend.sort_values(["평가연도", "순위"])
-    chart_column, note_column = st.columns([1.7, 0.8], gap="large")
-    with chart_column:
-        st.markdown(f"#### {industry} 시공능력평가 변화")
-        metric = st.radio("그래프 기준", ["순위", "시공능력평가액"], horizontal=True)
-        _ranking_chart(trend, metric)
-    with note_column:
-        st.markdown("#### 해석 기준")
-        st.info(
-            "평가액은 건설공사 도급순위의 지표인 시공능력평가액이며, 실제 계약금액이나 아파트 매출과는 다릅니다."
-        )
-        st.caption(
-            f"{base_year}년 {industry} Top 20을 후보군으로 삼았습니다. "
-            "회사명은 별칭표를 통해 법인 기준으로 연결합니다."
-        )
+    trend = trend.sort_values(["시공사", "평가연도"])
+
+    _trend_summary(trend, selected_companies)
+    st.markdown(f"#### {industry} 시공능력평가 추이")
+    st.caption(
+        f"{base_year}년 {industry} Top 20을 비교 후보군으로 선정했습니다. "
+        "시공능력평가액은 실제 아파트 계약금액·매출이 아닌 도급능력 평가 지표이며, 증감률은 전년 대비입니다."
+    )
+    metric = st.radio("그래프 기준", ["시공능력평가액", "순위"], horizontal=True)
+    _ranking_chart(trend, metric)
 
     expanded = prepare_apartment_contractors(apartment)
     available_years = expanded["사용승인연도"].dropna().astype(int)
