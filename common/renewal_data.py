@@ -65,6 +65,12 @@ def _transform_coordinates(coordinates, transformer: Transformer):
     return [_transform_coordinates(item, transformer) for item in coordinates]
 
 
+def _json_safe_value(value):
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
 @st.cache_data(show_spinner="의제처리구역 도형을 불러오는 중입니다...")
 def load_renewal_areas(path: str = str(RENEWAL_AREA_SHP_PATH)) -> dict:
     source = Path(path)
@@ -77,7 +83,10 @@ def load_renewal_areas(path: str = str(RENEWAL_AREA_SHP_PATH)) -> dict:
     for item in reader.iterShapeRecords():
         geometry = item.shape.__geo_interface__
         geometry["coordinates"] = _transform_coordinates(geometry["coordinates"], transformer)
-        properties = dict(zip(field_names, item.record))
+        properties = {
+            field: _json_safe_value(value)
+            for field, value in zip(field_names, item.record)
+        }
         features.append({"type": "Feature", "geometry": geometry, "properties": properties})
     return {"type": "FeatureCollection", "features": features}
 
