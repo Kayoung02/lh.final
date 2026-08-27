@@ -70,7 +70,7 @@ def load_renewal_areas(path: str = str(RENEWAL_AREA_SHP_PATH)) -> dict:
     source = Path(path)
     if not source.exists():
         raise FileNotFoundError(f"의제처리구역 공간파일을 찾을 수 없습니다: {source.name}")
-    reader = shapefile.Reader(str(source), encoding="euc-kr")
+    reader = shapefile.Reader(str(source), encoding="cp949")
     field_names = [field[0] for field in reader.fields[1:]]
     transformer = Transformer.from_crs("EPSG:5174", "EPSG:4326", always_xy=True)
     features = []
