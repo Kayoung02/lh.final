@@ -1,0 +1,95 @@
+alias_name,company_entity_id,company_entity_name,company_group_id,company_group_name,valid_from_year,valid_to_year,brand_primary,brand_highend,logo_primary_path,logo_highend_path,source_scope,alias_type,match_note
+SH공사,SH,서울주택도시공사,SH,서울주택도시공사,1989,,,,,,apartment,약칭,괄호와 주식회사 표기는 코드 정규화에서 제거
+에스에이치공사,SH,서울주택도시공사,SH,서울주택도시공사,1989,,,,,,apartment,한글음차,
+서울주택도시공사,SH,서울주택도시공사,SH,서울주택도시공사,2016,,,,,,apartment,현행사명,
+서울특별시도시개발공사,SH,서울주택도시공사,SH,서울주택도시공사,1989,2015,,,,,apartment,과거사명,
+대한주택공사,LH,한국토지주택공사,LAND_HOUSING,LH·대한주택공사,1962,2009,,,,,,apartment,전신기관,
+한국토지주택공사,LH,한국토지주택공사,LAND_HOUSING,LH·대한주택공사,2009,,,,,,apartment,현행사명,
+LH공사,LH,한국토지주택공사,LAND_HOUSING,LH·대한주택공사,2009,,,,,,apartment,약칭,
+LH,LH,한국토지주택공사,LAND_HOUSING,LH·대한주택공사,2009,,,,,,apartment,약칭,
+삼성물산,SAMSUNG_CNT,삼성물산,SAMSUNG,SAMSUNG,2007,,래미안,,assets/brand_logos/래미안.png,,both,법인명,
+삼성건설,SAMSUNG_CNT,삼성물산,SAMSUNG,SAMSUNG,2007,,래미안,,assets/brand_logos/래미안.png,,apartment,사업부·통칭,법인 기준 집계는 삼성물산으로 연결
+삼성에버랜드,SAMSUNG_EVERLAND,삼성에버랜드,SAMSUNG,SAMSUNG,2007,2013,,,,,,rank,과거사명,삼성물산과 별도 법인으로 유지
+삼성엔지니어링,SAMSUNG_ENGINEERING,삼성엔지니어링,SAMSUNG,SAMSUNG,2007,,,,,,,rank,법인명,
+삼성이앤에이,SAMSUNG_EA,삼성이앤에이,SAMSUNG,SAMSUNG,2024,,,,,,,rank,현행사명,삼성엔지니어링과 별도 법인으로 유지
+삼성중공업,SAMSUNG_HEAVY,삼성중공업,SAMSUNG,SAMSUNG,2007,,,,,,,apartment,법인명,삼성물산과 별도 법인으로 유지
+현대건설,HYUNDAI_EC,현대건설,HYUNDAI_MOTOR,현대자동차그룹,2007,,힐스테이트,디에이치,assets/brand_logos/힐스테이트.jpeg,assets/brand_logos/디에이치.png,both,법인명,
+현대엔지니어링,HYUNDAI_ENGINEERING,현대엔지니어링,HYUNDAI_MOTOR,현대자동차그룹,2007,,,,,,,both,법인명,
+현대엠코,HYUNDAI_ENGINEERING,현대엔지니어링,HYUNDAI_MOTOR,현대자동차그룹,2007,2013,,,,,,rank,흡수합병전 사명,현대엔지니어링으로 연결
+엠코,HYUNDAI_ENGINEERING,현대엔지니어링,HYUNDAI_MOTOR,현대자동차그룹,2007,2013,,,,,,rank,약칭,현대엠코의 약칭
+현대산업개발,HDC_HYUNDAI_INDUSTRIAL,HDC현대산업개발,HDC,HDC,2007,2017,아이파크,,assets/brand_logos/아이파크.png,,both,과거사명,
+아이파크현대산업개발,HDC_HYUNDAI_INDUSTRIAL,HDC현대산업개발,HDC,HDC,2018,2018,아이파크,,assets/brand_logos/아이파크.png,,rank,중간표기,
+에이치디씨현대산업개발,HDC_HYUNDAI_INDUSTRIAL,HDC현대산업개발,HDC,HDC,2018,,아이파크,,assets/brand_logos/아이파크.png,,both,현행사명,
+HDC현대산업개발,HDC_HYUNDAI_INDUSTRIAL,HDC현대산업개발,HDC,HDC,2018,,아이파크,,assets/brand_logos/아이파크.png,,apartment,영문혼합표기,
+아이파크아이앤콘스,HDC_ICONS,HDC아이앤콘스,HDC,HDC,2007,,,,,,,rank,법인명,기업그룹 기준에서 HDC로 합산
+에이치디씨아이앤콘스,HDC_ICONS,HDC아이앤콘스,HDC,HDC,2007,,,,,,,rank,한글음차,기업그룹 기준에서 HDC로 합산
+GS건설,GS_EC,GS건설,GS,GS,2007,,자이,,assets/brand_logos/자이.png,,apartment,영문표기,
+지에스건설,GS_EC,GS건설,GS,GS,2007,,자이,,assets/brand_logos/자이.png,,rank,한글음차,
+대림산업,DL_EC,DL이앤씨,DL,DL,2007,2020,이편한세상,아크로,assets/brand_logos/이편한세상.jpeg,assets/brand_logos/아크로.jpeg,both,과거사명,
+디엘이앤씨,DL_EC,DL이앤씨,DL,DL,2021,,이편한세상,아크로,assets/brand_logos/이편한세상.jpeg,assets/brand_logos/아크로.jpeg,both,현행사명,
+DL이앤씨,DL_EC,DL이앤씨,DL,DL,2021,,이편한세상,아크로,assets/brand_logos/이편한세상.jpeg,assets/brand_logos/아크로.jpeg,apartment,영문혼합표기,
+삼호,DL_CONSTRUCTION,DL건설,DL,DL,2007,2020,이편한세상,,assets/brand_logos/이편한세상.jpeg,,apartment,과거법인명,법인 기준은 DL건설과 연결
+대림건설,DL_CONSTRUCTION,DL건설,DL,DL,2018,2020,이편한세상,,assets/brand_logos/이편한세상.jpeg,,both,과거사명,법인 기준은 DL건설과 연결
+디엘건설,DL_CONSTRUCTION,DL건설,DL,DL,2021,,이편한세상,,assets/brand_logos/이편한세상.jpeg,,both,현행사명,
+DL건설,DL_CONSTRUCTION,DL건설,DL,DL,2021,,이편한세상,,assets/brand_logos/이편한세상.jpeg,,apartment,영문혼합표기,
+포스코건설,POSCO_EC,포스코이앤씨,POSCO,POSCO,2007,2022,더샵,오티에르,assets/brand_logos/더샵.png,assets/brand_logos/오티에르.jpeg,both,과거사명,
+포스코이앤씨,POSCO_EC,포스코이앤씨,POSCO,POSCO,2023,,더샵,오티에르,assets/brand_logos/더샵.png,assets/brand_logos/오티에르.jpeg,both,현행사명,
+포스코엔지니어링,POSCO_ENGINEERING,포스코엔지니어링,POSCO,POSCO,2007,2016,,,,,,rank,과거법인명,포스코이앤씨와 별도 법인으로 유지
+에스케이건설,SK_ECOPLANT,SK에코플랜트,SK,SK,2007,2020,SK뷰,,assets/brand_logos/sk뷰.png,,both,과거사명,
+SK건설,SK_ECOPLANT,SK에코플랜트,SK,SK,2007,2020,SK뷰,,assets/brand_logos/sk뷰.png,,apartment,영문표기,
+에스케이에코플랜트,SK_ECOPLANT,SK에코플랜트,SK,SK,2021,,SK뷰,,assets/brand_logos/sk뷰.png,,both,현행사명,
+SK에코플랜트,SK_ECOPLANT,SK에코플랜트,SK,SK,2021,,SK뷰,,assets/brand_logos/sk뷰.png,,apartment,영문혼합표기,
+에스케이에코엔지니어링,SK_ECO_ENGINEERING,SK에코엔지니어링,SK,SK,2021,,,,,,,rank,법인명,SK에코플랜트와 별도 법인으로 유지
+롯데건설,LOTTE_EC,롯데건설,LOTTE,롯데,2007,,롯데캐슬,르엘,assets/brand_logos/롯데캐슬.png,assets/brand_logos/르엘.png,both,법인명,
+대우건설,DAEWOO_EC,대우건설,DAEWOO_EC,대우건설,2007,,푸르지오,푸르지오 써밋,assets/brand_logos/푸르지오.png,assets/brand_logos/푸르지오써밋.jpeg,both,법인명,
+호반건설,HOBAN_CONSTRUCTION,호반건설,HOBAN,호반,2007,,호반써밋,,assets/brand_logos/호반써밋.jpg,,both,법인명,
+호반건설주택,HOBAN_HOUSING,호반건설주택,HOBAN,호반,2007,,호반써밋,,assets/brand_logos/호반써밋.jpg,,rank,법인명,기업그룹 기준에서 호반으로 합산
+호반건설산업,HOBAN_INDUSTRIAL,호반산업,HOBAN,호반,2007,,호반써밋,,assets/brand_logos/호반써밋.jpg,,rank,과거법인명,기업그룹 기준에서 호반으로 합산
+호반산업,HOBAN_INDUSTRIAL,호반산업,HOBAN,호반,2007,,호반써밋,,assets/brand_logos/호반써밋.jpg,,rank,현행사명,기업그룹 기준에서 호반으로 합산
+한화건설,HANWHA_CONSTRUCTION,한화 건설부문,HANWHA,한화,2007,2022,포레나,,assets/brand_logos/포레나.jpg,,both,과거사명,
+한화,HANWHA_CONSTRUCTION,한화 건설부문,HANWHA,한화,2023,,포레나,,assets/brand_logos/포레나.jpg,,rank,현행법인표기,한화 건설부문으로 연결
+두산건설,DOOSAN_EC,두산건설,DOOSAN,두산,2007,,위브,,assets/brand_logos/위브.png,,both,법인명,
+두산중공업,DOOSAN_ENERBILITY,두산에너빌리티,DOOSAN,두산,2007,2021,,,,,,both,과거사명,
+두산에너빌리티,DOOSAN_ENERBILITY,두산에너빌리티,DOOSAN,두산,2022,,,,,,rank,현행사명,
+금호산업,KUMHO_EC,금호건설,KUMHO_ASIANA,금호아시아나,2007,2020,,,,,,both,과거사명,
+금호건설,KUMHO_EC,금호건설,KUMHO_ASIANA,금호아시아나,2021,,,,,,both,현행사명,
+한라건설,HL_DNI,HL디앤아이한라,HL,HL,2007,2012,,,,,,rank,과거사명,
+한라,HL_DNI,HL디앤아이한라,HL,HL,2012,2021,,,,,,both,중간사명,
+HL디앤아이한라,HL_DNI,HL디앤아이한라,HL,HL,2022,,,,,,apartment,현행사명,
+계룡건설산업,KERYONG_EC,계룡건설산업,KERYONG,계룡,2007,,,,,,,both,법인명,
+한신공영,HANSHIN_EC,한신공영,HANSHIN,한신,2007,,,,,,,both,법인명,
+태영건설,TAEYOUNG_EC,태영건설,TAEYOUNG,태영,2007,,,,,,,both,법인명,
+코오롱건설,KOLON_GLOBAL,코오롱글로벌,KOLON,코오롱,2007,2010,,,,,,rank,과거사명,
+코오롱글로벌,KOLON_GLOBAL,코오롱글로벌,KOLON,코오롱,2011,,,,,,,both,현행사명,
+쌍용건설,SSANGYONG_EC,쌍용건설,SSANGYONG,쌍용,2007,,,,,,,both,법인명,
+동부건설,DONGBU_EC,동부건설,DONGBU,동부,2007,,,,,,,both,법인명,
+케이씨씨건설,KCC_EC,KCC건설,KCC,KCC,2007,,,,,,,both,한글음차,
+KCC건설,KCC_EC,KCC건설,KCC,KCC,2007,,,,,,,apartment,영문혼합표기,
+신세계건설,SHINSEGAE_EC,신세계건설,SHINSEGAE,신세계,2007,,,,,,,rank,법인명,
+한진중공업,HJ_EC,HJ중공업,HJ,HJ,2007,2020,,,,,,both,과거사명,
+에이치제이중공업,HJ_EC,HJ중공업,HJ,HJ,2021,,,,,,,rank,현행사명,
+HJ중공업,HJ_EC,HJ중공업,HJ,HJ,2021,,,,,,,apartment,영문혼합표기,
+한양,HANYANG_EC,BS한양,BS_HANYANG,BS한양,2007,2024,,,,,,both,과거사명,
+비에스한양,HANYANG_EC,BS한양,BS_HANYANG,BS한양,2025,,,,,,,rank,현행사명,
+BS한양,HANYANG_EC,BS한양,BS_HANYANG,BS한양,2025,,,,,,,apartment,영문혼합표기,
+효성,HYOSUNG_EC,효성중공업,HYOSUNG,효성,2007,2017,,,,,,rank,과거법인표기,
+효성중공업,HYOSUNG_EC,효성중공업,HYOSUNG,효성,2018,,,,,,,rank,현행사명,
+부영주택,BOOYOUNG_HOUSING,부영주택,BOOYOUNG,부영,2007,,,,,,,both,법인명,
+대방건설,DAEBANG_EC,대방건설,DAEBANG,대방,2007,,,,,,,both,법인명,
+우미건설,WOOMI_EC,우미건설,WOOMI,우미,2007,,,,,,,both,법인명,
+우미글로벌,WOOMI_GLOBAL,우미글로벌,WOOMI,우미,2007,,,,,,,rank,법인명,기업그룹 기준에서 우미로 합산
+제일건설,JEIL_EC,제일건설,JEIL,제일,2007,,,,,,,both,법인명,
+서희건설,SEOHEE_EC,서희건설,SEOHEE,서희,2007,,,,,,,both,법인명,
+중흥토건,JUNGHEUNG_TOGUN,중흥토건,JUNGHEUNG,중흥,2007,,,,,,,both,법인명,
+반도건설,BANDO_EC,반도건설,BANDO,반도,2007,,,,,,,both,법인명,
+동원개발,DONGWON_DEVELOPMENT,동원개발,DONGWON_DEVELOPMENT,동원개발,2007,,,,,,,both,법인명,
+동문건설,DONGMOON_EC,동문건설,DONGMOON,동문,2007,,,,,,,apartment,법인명,
+신동아건설,SINDONGA_EC,신동아건설,SINDONGA,신동아,2007,,,,,,,apartment,법인명,
+동아건설,DONGA_EC,동아건설,DONGA,동아,2007,,,,,,,apartment,법인명,
+벽산건설,BYEOKSAN_EC,벽산건설,BYEOKSAN,벽산,2007,,,,,,,apartment,법인명,
+극동건설,KEUKDONG_EC,극동건설,KEUKDONG,극동,2007,,,,,,,apartment,법인명,
+삼익건설,SAMIK_EC,삼익건설,SAMIK,삼익,2007,,,,,,,apartment,법인명,
+우성건설,WOOSUNG_EC,우성건설,WOOSUNG,우성,2007,,,,,,,apartment,법인명,
+중앙건설,JUNGANG_EC,중앙건설,JUNGANG,중앙,2007,,,,,,,apartment,법인명,
+성원건설,SUNGWON_EC,성원건설,SUNGWON,성원,2007,,,,,,,apartment,법인명,
+라이프주택,LIFE_HOUSING,라이프주택,LIFE_HOUSING,라이프주택,2007,,,,,,,apartment,법인명,
