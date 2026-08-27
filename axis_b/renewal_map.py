@@ -11,7 +11,12 @@ from streamlit_folium import st_folium
 
 from common.config import SEOUL_CENTER
 from common.contractor_data import get_top20_companies, load_ranking_data
-from common.dart_collector import collect_dart_candidates, company_corp_codes, get_dart_api_key
+from common.dart_collector import (
+    collect_dart_candidates,
+    company_corp_codes,
+    enrich_dart_candidates,
+    get_dart_api_key,
+)
 from common.renewal_data import (
     load_renewal_areas,
     load_renewal_evidence,
@@ -30,6 +35,39 @@ def _filtered_projects(projects: pd.DataFrame, gu: str, project_type: str, stage
     if stage != "전체 추진단계":
         data = data.loc[data["추진단계"].eq(stage)]
     return data
+
+
+def _match_dart_projects(candidates: pd.DataFrame, projects: pd.DataFrame) -> pd.DataFrame:
+    """계약명·공급지역이 원장 사업명 또는 지번주소와 정확히 겹칠 때만 추천한다."""
+    result = candidates.copy()
+    project_rows = projects[["정비사업_매칭키", "구역명", "위치_지번주소"]].fillna("").to_dict("records")
+
+    matched_keys, match_rules = [], []
+    for _, candidate in result.iterrows():
+        source_text = project_name_key(
+            " ".join(str(candidate.get(column, "")) for column in ("계약명", "공급지역", "공사개요"))
+        )
+        match_key, match_rule = "", "자동 연결 없음"
+        for project in project_rows:
+            address_key = project_name_key(project["위치_지번주소"])
+            if len(address_key) >= 6 and address_key in source_text:
+                match_key, match_rule = project["정비사업_매칭키"], "주소 일치"
+                break
+        if not match_key:
+            for project in project_rows:
+                name_key = project_name_key(project["구역명"])
+                if len(name_key) >= 5 and name_key in source_text:
+                    match_key, match_rule = project["정비사업_매칭키"], "사업명 일치"
+                    break
+        matched_keys.append(match_key)
+        match_rules.append(match_rule)
+
+    result["추천 정비사업"] = matched_keys
+    result["자동매칭 근거"] = match_rules
+    result["판정"] = result["자동매칭 근거"].map(
+        lambda value: "원문 확인 후 근거 등록" if value != "자동 연결 없음" else "사업 연결 확인 필요"
+    )
+    return result
 
 
 def _renewal_map(areas: dict, evidence: pd.DataFrame) -> folium.Map:
@@ -171,13 +209,14 @@ def render_renewal_map() -> None:
                 candidates = collect_dart_candidates(
                     api_key, company_codes, start_date.isoformat(), end_date.isoformat()
                 )
+                candidates = _match_dart_projects(enrich_dart_candidates(api_key, candidates), projects)
                 if unmatched:
                     st.caption("DART 법인코드를 자동 연결하지 못한 시공사: " + ", ".join(unmatched))
                 if candidates.empty:
                     st.info("선택 기간에 제목 기준으로 추출된 검토 후보가 없습니다.")
                 else:
                     st.dataframe(
-                        candidates[["공시일", "시공사_표준화", "DART_회사명", "공시제목", "DART_접수번호", "판정"]],
+                        candidates[["공시일", "시공사_표준화", "공시제목", "계약명", "공급지역", "추천 정비사업", "자동매칭 근거", "판정"]],
                         hide_index=True, use_container_width=True,
                     )
                     st.download_button(
