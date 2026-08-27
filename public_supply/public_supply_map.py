@@ -1,77 +1,52 @@
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 from streamlit_folium import st_folium
 
 from common.data_loader import load_apartment_data
-from common.map_utils import build_public_share_map
-from common.public_supply import summarize_by_agency, summarize_by_developer_type, summarize_public_share_by_district
+from common.map_utils import build_supply_subject_choropleth
+from common.public_supply import (
+    SUBJECT_COLORS,
+    SUPPLY_SUBJECT_ORDER,
+    prepare_supply_subject_data,
+    summarize_subject_by_district,
+    summarize_supply_subjects,
+)
 
 
-def _filter_analysis_data(apartment: pd.DataFrame) -> tuple[pd.DataFrame, str, str]:
-    """선택 조건을 적용하되, 시행주체별 구성의 분모는 전체 단지로 유지한다."""
-    districts = sorted(apartment.loc[apartment["시군구"].ne("미상"), "시군구"].unique())
-    agencies = sorted(apartment["시행사_표시"].dropna().unique())
-    years = sorted(apartment["사용승인연도"].dropna().astype(int).unique())
-
-    st.markdown("#### 분석 조건")
-    location_column, agency_column, mode_column, basis_column = st.columns([1, 1.25, 1, 0.85])
-    with location_column:
-        selected_district = st.selectbox("자치구", ["전체"] + districts)
-    with agency_column:
-        selected_agency = st.selectbox("시행사", ["전체"] + agencies)
-    with mode_column:
-        public_mode = st.selectbox("공공 기준", ["공공 직접 시행", "공공 참여"])
-    with basis_column:
-        ratio_base = st.selectbox("비율 기준", ["세대수", "단지수"])
-
-    with st.expander("사용승인 연도 설정", expanded=False):
-        selected_years = st.slider(
-            "분석 기간", min_value=min(years), max_value=max(years), value=(min(years), max(years))
-        )
-
-    filtered = apartment.copy()
-    if selected_district != "전체":
-        filtered = filtered[filtered["시군구"].eq(selected_district)]
-    if selected_agency != "전체":
-        filtered = filtered[filtered["시행사_표시"].eq(selected_agency)]
-    filtered = filtered[filtered["사용승인연도"].between(*selected_years, inclusive="both")]
-    return filtered, public_mode, ratio_base
-
-
-def _share(numerator: pd.DataFrame, denominator: pd.DataFrame, ratio_base: str) -> float:
-    if ratio_base == "세대수":
-        total = denominator["세대수"].sum()
-        return float(numerator["세대수"].sum() / total * 100) if total else 0.0
-    return float(len(numerator) / len(denominator) * 100) if len(denominator) else 0.0
-
-
-def _render_developer_type_donut(summary: pd.DataFrame, ratio_base: str) -> None:
-    st.markdown("#### 서울 전체 시행주체 구성")
-    st.caption(f"선택한 조건의 전체 아파트를 {ratio_base} 기준으로 구분합니다.")
-    st.vega_lite_chart(
+def _donut(summary: pd.DataFrame) -> None:
+    figure = px.pie(
         summary,
-        {
-            "mark": {"type": "arc", "innerRadius": 56},
-            "encoding": {
-                "theta": {"field": ratio_base, "type": "quantitative", "stack": True},
-                "color": {"field": "시행주체 구분", "type": "nominal", "legend": {"title": None}},
-                "tooltip": [
-                    {"field": "시행주체 구분", "type": "nominal", "title": "시행주체"},
-                    {"field": "단지수", "type": "quantitative", "format": ","},
-                    {"field": "세대수", "type": "quantitative", "format": ","},
-                    {"field": "단지수_비중(%)", "type": "quantitative", "format": ".1f"},
-                    {"field": "세대수_비중(%)", "type": "quantitative", "format": ".1f"},
-                ],
-            },
-            "view": {"stroke": None},
-        },
-        use_container_width=True,
+        names="공급주체",
+        values="보정 공급 기여지수(%)",
+        hole=0.58,
+        color="공급주체",
+        color_discrete_map=SUBJECT_COLORS,
+        category_orders={"공급주체": SUPPLY_SUBJECT_ORDER},
     )
+    figure.update_traces(
+        textinfo="percent",
+        texttemplate="%{percent:.1%}",
+        hovertemplate="<b>%{label}</b><br>보정 공급 기여지수: %{value:.1f}%<extra></extra>",
+    )
+    figure.update_layout(
+        margin=dict(l=0, r=0, t=18, b=0),
+        legend_title_text="공급주체",
+        annotations=[dict(text="서울<br>전체", x=0.5, y=0.5, showarrow=False, font_size=16)],
+    )
+    st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
+
+
+def _selected_row(summary: pd.DataFrame, subject: str) -> pd.Series:
+    return summary.loc[summary["공급주체"].eq(subject)].iloc[0]
 
 
 def render_public_supply_map() -> None:
-    st.subheader("시행주체별 아파트 분포")
-    st.caption("핵심 질문: 서울 아파트 중 공공이 시행한 비율은 얼마이며, 자치구별로 어떻게 다른가?")
+    st.subheader("아파트 공급주체 구성·지역분포")
+    st.caption(
+        "서울 아파트 공급에서 공공·민간·조합·공동 시행이 각각 어느 정도를 차지하고, "
+        "그 비중이 자치구별로 어떻게 다른지 확인합니다."
+    )
 
     try:
         apartment = load_apartment_data()
@@ -79,70 +54,80 @@ def render_public_supply_map() -> None:
         st.error(str(error))
         return
 
-    analysis_data, public_mode, ratio_base = _filter_analysis_data(apartment)
-    if analysis_data.empty:
-        st.warning("선택한 조건에 해당하는 아파트 단지가 없습니다.")
+    classified, excluded = prepare_supply_subject_data(apartment)
+    if classified.empty:
+        st.warning("공급주체가 분류된 아파트 단지가 없습니다.")
         return
+    summary = summarize_supply_subjects(classified)
 
-    direct_public = analysis_data[analysis_data["시행주체 구분"].isin(["공공", "기타공공"])]
-    public_participation = analysis_data[
-        analysis_data["시행주체 구분"].astype(str).str.contains("공공", na=False)
-    ]
-    district_summary = summarize_public_share_by_district(analysis_data, public_mode)
-    ratio_column = f"공공_{ratio_base}_비율(%)"
-
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("분석 대상 단지", f"{len(analysis_data):,}개")
-    kpi2.metric("분석 대상 세대수", f"{int(analysis_data['세대수'].sum()):,}세대")
-    kpi3.metric(f"공공 직접 시행 비율 ({ratio_base})", f"{_share(direct_public, analysis_data, ratio_base):.1f}%")
-    kpi4.metric(f"공공 참여 비율 ({ratio_base})", f"{_share(public_participation, analysis_data, ratio_base):.1f}%")
-
-    map_column, composition_column = st.columns([1.75, 1], gap="large")
-    with map_column:
-        st.markdown(f"#### 자치구별 {public_mode} 비율")
-        st.caption("색이 진할수록 해당 자치구의 전체 아파트 중 공공이 차지하는 비중이 높습니다. 확대하면 행정동 경계와 자치구별 상세 수치를 볼 수 있습니다.")
-        st_folium(
-            build_public_share_map(district_summary, ratio_column, public_mode),
-            height=640,
-            use_container_width=True,
-            returned_objects=[],
-        )
-
+    composition_column, map_column = st.columns([0.88, 1.65], gap="large")
     with composition_column:
-        _render_developer_type_donut(summarize_by_developer_type(analysis_data), ratio_base)
-        st.info(
-            "공공 직접 시행은 `공공`·`기타공공`의 합계입니다. "
-            "공공 참여는 여기에 공공 공동 시행을 포함합니다."
+        st.markdown("#### 서울 전체 공급주체 구성")
+        st.caption("보정 공급 기여지수 = 세대수 비중 70% + 동수 비중 30%")
+        _donut(summary)
+        selected_subject = st.radio(
+            "지도와 상세 수치에서 볼 공급주체",
+            SUPPLY_SUBJECT_ORDER,
+            horizontal=False,
         )
+        st.caption("공동 시행 단지는 공공과 민간·조합에 중복 산입하지 않고 별도 주체로 계산합니다.")
 
-    detail_column, agency_column = st.columns([1.35, 1], gap="large")
-    with detail_column:
-        st.markdown(f"#### 자치구별 {public_mode} 현황")
-        st.caption("막대는 자치구 전체 아파트 대비 공공 세대수 비율입니다.")
-        st.bar_chart(district_summary.set_index("시군구")["공공_세대수_비율(%)"], horizontal=True)
-        display_columns = [
-            "시군구",
-            "전체_단지수",
-            "공공_단지수",
-            "공공_단지수_비율(%)",
-            "전체_세대수",
-            "공공_세대수",
-            "공공_세대수_비율(%)",
+    district_summary = summarize_subject_by_district(classified, selected_subject)
+    selected = _selected_row(summary, selected_subject)
+
+    with map_column:
+        st.markdown(f"#### 자치구별 {selected_subject} 공급 기여도")
+        st.caption(
+            "색이 진할수록 해당 자치구의 분류된 아파트 공급에서 선택한 주체의 기여도가 높습니다. "
+            "지도 위에 마우스를 올리면 상세 수치를 볼 수 있습니다."
+        )
+        try:
+            supply_map = build_supply_subject_choropleth(district_summary, selected_subject)
+        except (FileNotFoundError, ValueError) as error:
+            st.error(str(error))
+        else:
+            st_folium(supply_map, height=590, use_container_width=True, returned_objects=[])
+
+    st.divider()
+    st.markdown(f"#### {selected_subject} 상세")
+    detail1, detail2, detail3, detail4 = st.columns(4)
+    detail1.metric("보정 공급 기여지수", f"{selected['보정 공급 기여지수(%)']:.1f}%")
+    detail2.metric("세대수 비중", f"{selected['세대수 비중(%)']:.1f}%")
+    detail3.metric("동수 비중", f"{selected['동수 비중(%)']:.1f}%")
+    detail4.metric("분류 단지 수", f"{int(selected['단지수']):,}개")
+
+    chart_column, table_column = st.columns([1, 1.25], gap="large")
+    with chart_column:
+        st.markdown(f"#### {selected_subject} 비중이 높은 자치구")
+        st.bar_chart(
+            district_summary.set_index("시군구")["보정 공급 기여지수(%)"],
+            horizontal=True,
+            color="#2F6B9A",
+        )
+    with table_column:
+        st.markdown("#### 자치구별 상세 수치")
+        display = district_summary[
+            [
+                "시군구",
+                "보정 공급 기여지수(%)",
+                "선택_단지수",
+                "선택_세대수",
+                "선택_동수",
+                "전체_세대수",
+            ]
         ]
         st.dataframe(
-            district_summary[display_columns],
+            display,
             hide_index=True,
             use_container_width=True,
-            height=340,
+            height=430,
             column_config={
-                "공공_단지수_비율(%)": st.column_config.NumberColumn(format="%.1f%%"),
-                "공공_세대수_비율(%)": st.column_config.NumberColumn(format="%.1f%%"),
+                "보정 공급 기여지수(%)": st.column_config.NumberColumn(format="%.1f%%")
             },
         )
 
-    with agency_column:
-        st.markdown("#### 공공 시행기관별 단지·세대 규모")
-        st.caption("공공 직접 시행 단지만 대상으로, 어느 기관이 얼마나 시행했는지 보여줍니다.")
-        public_agencies = summarize_by_agency(direct_public).head(15)
-        st.dataframe(public_agencies, hide_index=True, use_container_width=True, height=260)
-        st.bar_chart(public_agencies.set_index("시행사")["총세대수"], horizontal=True)
+    if len(excluded):
+        st.caption(
+            f"분류 기준: 기타공공은 공공에 통합했습니다. 미상·확인필요 {len(excluded):,}개 단지는 "
+            "공급주체 비율의 분모에서 제외했으며, 원자료에는 유지합니다."
+        )
