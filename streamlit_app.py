@@ -1,7 +1,7 @@
 import streamlit as st
 
 from axis_a.territory_map import render_axis_a
-from axis_b.renewal_map import render_renewal_placeholder
+from axis_b.renewal_map import render_renewal_map
 from guidebook.guidebook import render_guidebook
 from public_supply.public_supply_map import render_public_supply_map
 
@@ -30,4 +30,5 @@ with tab_territory:
     render_axis_a()
 
 with tab_renewal:
-    render_renewal_placeholder()
+    render_renewal_map()
+
