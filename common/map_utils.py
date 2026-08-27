@@ -5,6 +5,7 @@ import json
 import branca.colormap as cm
 import folium
 from folium.plugins import Fullscreen
+from pyproj import Transformer
 
 from common.config import SEOUL_CENTER, SEOUL_GU_GEOJSON_PATH
 
@@ -30,18 +31,39 @@ def _first_coordinate(coordinates):
     return None
 
 
-def _validate_wgs84(boundaries: dict) -> None:
+def _transform_coordinates_to_wgs84(coordinates, transformer):
+    """중첩된 GeoJSON 좌표 배열을 EPSG:5186에서 경위도로 변환한다."""
+    if isinstance(coordinates[0], (int, float)):
+        longitude, latitude = transformer.transform(coordinates[0], coordinates[1])
+        return [longitude, latitude, *coordinates[2:]]
+    return [_transform_coordinates_to_wgs84(item, transformer) for item in coordinates]
+
+
+def _ensure_wgs84(boundaries: dict) -> None:
+    """잘못 표기된 EPSG:5186 도형을 앱 실행 시 안전하게 경위도로 변환한다."""
     for feature in boundaries.get("features", []):
         coordinate = _first_coordinate(feature.get("geometry", {}).get("coordinates", []))
         if coordinate:
             longitude, latitude = coordinate
-            if not (-180 <= longitude <= 180 and -90 <= latitude <= 90):
-                raise ValueError(
-                    "서울시자치구.geojson의 좌표가 경위도(EPSG:4326)가 아닙니다. "
-                    "QGIS에서 '다른 이름으로 저장' 후 CRS를 EPSG:4326 - WGS 84로 지정해 다시 내보내세요."
-                )
-            return
-    raise ValueError("서울시자치구.geojson에서 자치구 도형을 찾을 수 없습니다.")
+            if -180 <= longitude <= 180 and -90 <= latitude <= 90:
+                return
+
+            # BND_ADM_DONG_PG 원본의 좌표 범위(약 200,000 / 550,000)는 EPSG:5186이다.
+            if 100_000 <= longitude <= 400_000 and 400_000 <= latitude <= 800_000:
+                transformer = Transformer.from_crs("EPSG:5186", "EPSG:4326", always_xy=True)
+                for item in boundaries.get("features", []):
+                    geometry = item.get("geometry")
+                    if geometry and geometry.get("coordinates"):
+                        geometry["coordinates"] = _transform_coordinates_to_wgs84(
+                            geometry["coordinates"], transformer
+                        )
+                return
+
+            raise ValueError(
+                "시군구경계.geojson의 좌표계를 판별할 수 없습니다. "
+                "첫 좌표가 127.x, 37.x 또는 EPSG:5186 범위인지 확인하세요."
+            )
+    raise ValueError("시군구경계.geojson에서 자치구 도형을 찾을 수 없습니다.")
 
 
 def _district_name(properties: dict) -> str | None:
@@ -62,7 +84,7 @@ def build_supply_subject_choropleth(district_summary, subject: str):
 
     with SEOUL_GU_GEOJSON_PATH.open(encoding="utf-8") as file:
         boundaries = json.load(file)
-    _validate_wgs84(boundaries)
+    _ensure_wgs84(boundaries)
 
     records = district_summary.set_index("시군구").to_dict("index")
     maximum = max(float(district_summary["보정 공급 기여지수(%)"].max()), 1.0)
