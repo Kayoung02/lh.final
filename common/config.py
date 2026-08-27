@@ -10,6 +10,7 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 
 # 파일명은 전처리 산출물의 실제 이름을 그대로 사용한다.
 APARTMENT_DATA_PATH = PROCESSED_DIR / "서울시_공동주택_2차전처리_엑셀좌표반영본.csv"
+RANKING_DATA_PATH = PROCESSED_DIR / "시공능력평가_분석용_연도별_전체업종_최종.xlsx"
 COMPANY_ALIAS_MAP_PATH = REFERENCE_DIR / "company_alias_map.csv"
 # 1번 탭은 자치구 경계를 사용한다. 파일명은 GitHub에 올린 이름과 일치해야 한다.
 SEOUL_GU_GEOJSON_PATH = SPATIAL_DIR / "시군구경계.geojson"
